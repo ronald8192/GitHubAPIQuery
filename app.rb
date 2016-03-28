@@ -87,7 +87,9 @@ dataFiles.map{ |dataFile|
     if actor.count == 0
       begin
         actor = query.getUserDetails(csvRow[1])
-        query.saveToDB(:user,{username:actor[:username],location:actor[:location], email:actor[:email]})
+        Thread.new{
+          query.saveToDB(:user,{username:actor[:username],location:actor[:location], email:actor[:email]})
+        }
       rescue Exception => e
         STDERR.puts e.message
         apiQueryFailed = true
@@ -101,7 +103,9 @@ dataFiles.map{ |dataFile|
       if repo.count == 0
         begin
           repo = query.getRepoLanguages(csvRow[2])
-          query.saveToDB(:repo,{repo_name:repo[:repo_name], language:repo[:language]})
+          Thread.new{
+            query.saveToDB(:repo,{repo_name:repo[:repo_name], language:repo[:language]})
+          }
         rescue Exception => e
           STDERR.puts e.message
           apiQueryFailed = true
@@ -123,8 +127,9 @@ dataFiles.map{ |dataFile|
           language: repo[:language],
           created_at: csvRow[3]
       }
-
-      query.saveToDB(:githubData,document)
+      Thread.new{
+        query.saveToDB(:githubData,document)
+      }
     end
 
   end
