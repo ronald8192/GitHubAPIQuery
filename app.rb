@@ -4,16 +4,17 @@ require 'mongo'
 require 'csv'
 
 class Query
+  attr_accessor :client_id, :client_secret
 
   @dbclient
+  @client_id = ''
+  @client_secret = ''
 
   def getJSON(path)
-    client_id = ENV['github_api_client_id'].split(',')[0]
-    client_secret= ENV['github_api_client_secret'].split(',')[0]
     http = Net::HTTP.new('api.github.com', 443)
     http.use_ssl = true
     puts http.address + path
-    reply = http.get("#{path}?client_id=#{client_id}&client_secret=#{client_secret}")
+    reply = http.get("#{path}?client_id=#{@client_id}&client_secret=#{@client_secret}")
     #puts reply.inspect
 
     puts "RateLimit-Remaining: " + reply.get_fields('X-RateLimit-Remaining')[0]
@@ -27,8 +28,8 @@ class Query
         json = getJSON uri.path
       end
     else
-      #raise "#{reply.response.code} #{reply.response.message}"
-      puts "#{reply.response.code} #{reply.response.message}"
+      raise "#{reply.response.code} #{reply.response.message}"
+      #puts "#{reply.response.code} #{reply.response.message}"
     end
     json
   end
@@ -66,6 +67,9 @@ end
 
 query = Query.new
 query.initDB
+apikey = JSON.parse(File.read('githubapi.json'))
+query.client_id = apikey['client_id']
+query.client_secret = apikey['client_secret']
 
 dataFiles = Dir.entries('data/').select{|dataFile| dataFile.end_with?('.csv')}
 
@@ -77,35 +81,51 @@ dataFiles.map{ |dataFile|
 
     csvRow = csvRow.to_a
 
+    apiQueryFailed = false
+
     actor = query.find(:user, :username, csvRow[1]).to_a
     if actor.count == 0
-      actor = query.getUserDetails(csvRow[1])
-      query.saveToDB(:user,{username:actor[:username],location:actor[:location], email:actor[:email]})
+      begin
+        actor = query.getUserDetails(csvRow[1])
+        query.saveToDB(:user,{username:actor[:username],location:actor[:location], email:actor[:email]})
+      rescue Exception => e
+        STDERR.puts e.message
+        apiQueryFailed = true
+      end
     else
       actor = actor[0]
     end
 
-    repo = query.find(:repo, :repo_name, csvRow[2]).to_a
-    if repo.count == 0
-      repo = query.getRepoLanguages(csvRow[2])
-      query.saveToDB(:repo,{repo_name:repo[:repo_name], language:repo[:language]})
-    else
-      repo = repo[0]
+    if !apiQueryFailed
+      repo = query.find(:repo, :repo_name, csvRow[2]).to_a
+      if repo.count == 0
+        begin
+          repo = query.getRepoLanguages(csvRow[2])
+          query.saveToDB(:repo,{repo_name:repo[:repo_name], language:repo[:language]})
+        rescue Exception => e
+          STDERR.puts e.message
+          apiQueryFailed = true
+        end
+      else
+        repo = repo[0]
+      end
     end
 
-    puts actor.inspect
-    puts repo.inspect
-    document = {
-        type:csvRow[0],
-        actor_name:actor[:username],
-        actor_location: actor[:location],
-        actor_email:actor[:email],
-        repo_name: repo[:repo_name],
-        language: repo[:language],
-        created_at: csvRow[3]
-    }
+    if !apiQueryFailed
+      puts actor.inspect
+      puts repo.inspect
+      document = {
+          type:csvRow[0],
+          actor_name:actor[:username],
+          actor_location: actor[:location],
+          actor_email:actor[:email],
+          repo_name: repo[:repo_name],
+          language: repo[:language],
+          created_at: csvRow[3]
+      }
 
-    query.saveToDB(:githubData,document)
+      query.saveToDB(:githubData,document)
+    end
 
   end
 }
